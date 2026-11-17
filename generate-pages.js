@@ -3,9 +3,9 @@ const path = require('path');
 const { execSync } = require('child_process');
 const https = require('https');
 
-const DOMAIN = 'https://git-index.pages.dev';
-const HOST = 'git-index.pages.dev';
-const INDEXNOW_KEY = 'dd5dc9a82ae9487e912c9d3c7cbf4c71'; // Aapki IndexNow Key
+const DOMAIN = 'https://git.pageaura.xyz';
+const HOST = 'git.pageaura.xyz';
+const INDEXNOW_KEY = 'dd5dc9a82ae9487e912c9d3c7cbf4c71';
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const URLS_FILE = path.join(ROOT, 'urls.txt');
@@ -73,7 +73,7 @@ function run() {
     process.exit(1);
   }
 
-  // Ensure IndexNow key file exists in public folder so search engines can verify it
+  // Ensure IndexNow key file exists in public folder
   fs.mkdirSync(PUBLIC_DIR, { recursive: true });
   const keyFilePath = path.join(PUBLIC_DIR, `${INDEXNOW_KEY}.txt`);
   fs.writeFileSync(keyFilePath, INDEXNOW_KEY, 'utf8');
@@ -177,7 +177,7 @@ function run() {
   fs.writeFileSync(path.join(PUBLIC_DIR, 'sitemap.xml'), masterXml, 'utf8');
   console.log('Master sitemap and hourly sitemap generated successfully.');
 
-  // Ping IndexNow with newly generated URLs
+  // Ping IndexNow
   console.log('Pinging IndexNow API...');
   pingIndexNow(newlyGeneratedUrls);
 
