@@ -1,8 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const https = require('https');
 
 const DOMAIN = 'https://git-index.pages.dev';
+const HOST = 'git-index.pages.dev';
+const INDEXNOW_KEY = 'dd5dc9a82ae9487e912c9d3c7cbf4c71'; // Aapki IndexNow Key
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const URLS_FILE = path.join(ROOT, 'urls.txt');
@@ -23,8 +26,42 @@ function escapeXml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
+// Function to send URLs to IndexNow
+function pingIndexNow(urlsList) {
+  if (!urlsList || urlsList.length === 0) return;
+
+  const payload = JSON.stringify({
+    host: HOST,
+    key: INDEXNOW_KEY,
+    keyLocation: `${DOMAIN}/${INDEXNOW_KEY}.txt`,
+    urlList: urlsList
+  });
+
+  const options = {
+    hostname: 'api.indexnow.org',
+    port: 443,
+    path: '/indexnow',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+  };
+
+  const req = https.request(options, (res) => {
+    console.log(`IndexNow API Response Status: ${res.statusCode}`);
+  });
+
+  req.on('error', (error) => {
+    console.error('IndexNow Error:', error.message);
+  });
+
+  req.write(payload);
+  req.end();
+}
+
 function run() {
-  console.log('--- Starting Automated Page & Sitemap Generation ---');
+  console.log('--- Starting Automated Page, Sitemap & IndexNow Generation ---');
 
   if (!fs.existsSync(TEMPLATE_FILE)) {
     console.error('ERROR: indexing.html template file is missing in root!');
@@ -35,6 +72,11 @@ function run() {
     console.error('ERROR: urls.txt file is missing in root!');
     process.exit(1);
   }
+
+  // Ensure IndexNow key file exists in public folder so search engines can verify it
+  fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+  const keyFilePath = path.join(PUBLIC_DIR, `${INDEXNOW_KEY}.txt`);
+  fs.writeFileSync(keyFilePath, INDEXNOW_KEY, 'utf8');
 
   const templateContent = fs.readFileSync(TEMPLATE_FILE, 'utf8');
 
@@ -64,14 +106,14 @@ function run() {
   }
 
   const generatedPages = [];
+  const newlyGeneratedUrls = [];
 
   // Loop through each chunk to create a separate file
   for (const chunk of urlChunks) {
-    const pageSlug = generateRandomString(7); // 7-letter unique folder slug
+    const pageSlug = generateRandomString(7);
     const titleText = generateRandomString(10).toUpperCase();
     const headingText = generateRandomString(10).toUpperCase();
 
-    // Build HTML list of 10 URLs with 5-letter random slug hyperlinks
     let linksHtml = '<ul>\n';
     for (const targetUrl of chunk) {
       const randomSlug5 = generateRandomString(5);
@@ -80,13 +122,11 @@ function run() {
     }
     linksHtml += '</ul>';
 
-    // Replace placeholders in template
     let pageHtml = templateContent
       .replace('[[TITLE]]', titleText)
       .replace('[[HEADING]]', headingText)
       .replace('[[URLS]]', linksHtml);
 
-    // Hierarchical path: public/YYYY/MM/DD/HH/pageSlug/
     const relPath = `${year}/${month}/${day}/${hour}/${pageSlug}`;
     const fullPageUrl = `${DOMAIN}/${relPath}/`;
     const targetFolder = path.join(PUBLIC_DIR, year, month, day, hour, pageSlug);
@@ -98,6 +138,7 @@ function run() {
       url: fullPageUrl,
       lastmod: now.toISOString()
     });
+    newlyGeneratedUrls.push(fullPageUrl);
   }
 
   console.log(`Successfully generated ${generatedPages.length} HTML page copies.`);
@@ -106,7 +147,6 @@ function run() {
   const sitemapsDir = path.join(PUBLIC_DIR, 'sitemaps');
   fs.mkdirSync(sitemapsDir, { recursive: true });
 
-  // Hourly sitemap file
   let hourlyXml = '<?xml version="1.0" encoding="UTF-8"?>\n';
   hourlyXml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
   for (const page of generatedPages) {
@@ -122,7 +162,6 @@ function run() {
   const hourlySitemapFilename = `sitemap-${year}-${month}-${day}-${hour}.xml`;
   fs.writeFileSync(path.join(sitemapsDir, hourlySitemapFilename), hourlyXml, 'utf8');
 
-  // Read all existing sitemaps in sitemaps/ directory to build a robust Master Sitemap index
   const allSitemapFiles = fs.readdirSync(sitemapsDir).filter(f => f.endsWith('.xml') && f !== 'master-sitemap.xml');
 
   let masterXml = '<?xml version="1.0" encoding="UTF-8"?>\n';
@@ -138,6 +177,10 @@ function run() {
   fs.writeFileSync(path.join(PUBLIC_DIR, 'sitemap.xml'), masterXml, 'utf8');
   console.log('Master sitemap and hourly sitemap generated successfully.');
 
+  // Ping IndexNow with newly generated URLs
+  console.log('Pinging IndexNow API...');
+  pingIndexNow(newlyGeneratedUrls);
+
   // Git Commit and Push
   try {
     console.log('Committing updates to GitHub...');
@@ -147,7 +190,7 @@ function run() {
     
     const status = execSync('git status --porcelain').toString();
     if (status.trim().length > 0) {
-      execSync('git commit -m "chore: automated hourly pages & sitemaps generation [skip ci]"');
+      execSync('git commit -m "chore: automated hourly pages, sitemaps & indexnow ping [skip ci]"');
       execSync('git push');
       console.log('Pushed changes successfully.');
     } else {
